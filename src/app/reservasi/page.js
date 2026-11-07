@@ -1,14 +1,15 @@
 
 "use client";
 
-import { useEffect, useState } from "react";
+import Link from "next/link";
+import { useCallback, useEffect, useState } from "react";
 
 function formatRupiah(price) {
   return new Intl.NumberFormat("id-ID", {
     style: "currency",
     currency: "IDR",
     maximumFractionDigits: 0,
-  }).format(Number(price));
+  }).format(Number(price) || 0);
 }
 
 function getLocalDateString() {
@@ -20,6 +21,70 @@ function getLocalDateString() {
   return `${year}-${month}-${day}`;
 }
 
+function formatTanggal(dateString) {
+  if (!dateString) return "-";
+
+  return new Intl.DateTimeFormat("id-ID", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+    timeZone: "UTC",
+  }).format(new Date(dateString));
+}
+
+function labelStatus(status) {
+  const labels = {
+    MENUNGGU: "Menunggu Konfirmasi",
+    DIKONFIRMASI: "Dikonfirmasi",
+    CHECK_IN: "Sedang Menginap",
+    CHECK_OUT: "Selesai Menginap",
+    DIBATALKAN: "Dibatalkan",
+  };
+
+  return labels[status] || status?.replaceAll("_", " ") || "-";
+}
+
+function warnaStatus(status) {
+  const styles = {
+    MENUNGGU: "bg-amber-100 text-amber-800 border-amber-200",
+    DIKONFIRMASI: "bg-green-100 text-green-800 border-green-200",
+    CHECK_IN: "bg-blue-100 text-blue-800 border-blue-200",
+    CHECK_OUT: "bg-stone-100 text-stone-700 border-stone-200",
+    DIBATALKAN: "bg-red-100 text-red-800 border-red-200",
+  };
+
+  return styles[status] || "bg-stone-100 text-stone-700 border-stone-200";
+}
+
+function labelPembayaran(status) {
+  const labels = {
+    BELUM_DIBAYAR: "Belum Dibayar",
+    MENUNGGU_KONFIRMASI: "Menunggu Konfirmasi Pembayaran",
+    LUNAS: "Lunas",
+    DITOLAK: "Pembayaran Ditolak",
+  };
+
+  return labels[status] || "Belum Dibayar";
+}
+
+function warnaPembayaran(status) {
+  const styles = {
+    BELUM_DIBAYAR: "bg-amber-100 text-amber-800 border-amber-200",
+    MENUNGGU_KONFIRMASI: "bg-blue-100 text-blue-800 border-blue-200",
+    LUNAS: "bg-green-100 text-green-800 border-green-200",
+    DITOLAK: "bg-red-100 text-red-800 border-red-200",
+  };
+
+  return styles[status] || "bg-stone-100 text-stone-700 border-stone-200";
+}
+
+const MAX_FILE_SIZE = 5 * 1024 * 1024;
+const ALLOWED_FILE_TYPES = [
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+];
+
 export default function ReservasiPage() {
   const [rooms, setRooms] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -27,9 +92,20 @@ export default function ReservasiPage() {
   const [message, setMessage] = useState("");
   const [messageType, setMessageType] = useState("");
 
-  const [today, setToday] = useState("");
   const [user, setUser] = useState(null);
   const [loadingUser, setLoadingUser] = useState(true);
+
+  const [reservations, setReservations] = useState([]);
+  const [loadingReservations, setLoadingReservations] = useState(true);
+  const [reservationError, setReservationError] = useState("");
+
+  const [cancellingId, setCancellingId] = useState(null);
+  const [payingId, setPayingId] = useState(null);
+  const [uploadingProofId, setUploadingProofId] = useState(null);
+
+  const [paymentMethods, setPaymentMethods] = useState({});
+  const [proofFiles, setProofFiles] = useState({});
+  const [proofPreviews, setProofPreviews] = useState({});
 
   const [form, setForm] = useState({
     roomId: "",
@@ -38,12 +114,30 @@ export default function ReservasiPage() {
     guests: "1",
   });
 
-  // Mengambil tanggal setelah komponen dimuat di browser
-  useEffect(() => {
-    setToday(getLocalDateString());
+  // Mengambil riwayat reservasi.
+  const loadReservations = useCallback(async () => {
+    try {
+      const response = await fetch("/api/reservations");
+      const result = await response.json();
+
+      if (!response.ok || !result.success) {
+        throw new Error(
+          result.message || "Gagal mengambil riwayat reservasi."
+        );
+      }
+
+      setReservationError("");
+      setReservations(Array.isArray(result.data) ? result.data : []);
+    } catch (error) {
+      setReservationError(
+        error.message || "Terjadi kesalahan saat mengambil riwayat reservasi."
+      );
+    } finally {
+      setLoadingReservations(false);
+    }
   }, []);
 
-  // Memeriksa pengguna yang sedang login
+  // Memeriksa akun pengguna dan memuat riwayat.
   useEffect(() => {
     let active = true;
 
@@ -55,7 +149,10 @@ export default function ReservasiPage() {
         if (!response.ok || !result.success || !result.data?.id) {
           if (active) {
             setUser(null);
-            setMessage("Silakan masuk ke akun terlebih dahulu untuk melakukan reservasi.");
+            setLoadingReservations(false);
+            setMessage(
+              "Silakan masuk ke akun terlebih dahulu untuk melakukan reservasi."
+            );
             setMessageType("error");
           }
           return;
@@ -64,9 +161,12 @@ export default function ReservasiPage() {
         if (active) {
           setUser(result.data);
         }
-      } catch (error) {
+
+        await loadReservations();
+      } catch {
         if (active) {
           setUser(null);
+          setLoadingReservations(false);
           setMessage("Gagal memeriksa sesi login. Silakan coba lagi.");
           setMessageType("error");
         }
@@ -82,9 +182,9 @@ export default function ReservasiPage() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [loadReservations]);
 
-  // Mengambil data kamar dari database
+  // Mengambil data kamar.
   useEffect(() => {
     let active = true;
 
@@ -94,10 +194,10 @@ export default function ReservasiPage() {
         const result = await response.json();
 
         if (!response.ok || !result.success) {
-          throw new Error("Gagal memuat data kamar.");
+          throw new Error(result.message || "Gagal memuat data kamar.");
         }
 
-        const availableRooms = result.data.flatMap((type) =>
+        const availableRooms = (result.data || []).flatMap((type) =>
           (type.rooms || [])
             .filter((room) => room.status === "TERSEDIA")
             .map((room) => ({
@@ -113,7 +213,7 @@ export default function ReservasiPage() {
         }
       } catch (error) {
         if (active) {
-          setMessage(error.message || "Terjadi kesalahan saat memuat kamar.");
+          setMessage(error.message || "Gagal memuat kamar.");
           setMessageType("error");
         }
       } finally {
@@ -134,9 +234,6 @@ export default function ReservasiPage() {
     (room) => room.id === Number(form.roomId)
   );
 
-  const checkInMin = today || undefined;
-  const checkOutMin = form.checkIn || today || undefined;
-
   function handleChange(event) {
     const { name, value } = event.target;
 
@@ -146,8 +243,6 @@ export default function ReservasiPage() {
         [name]: value,
       };
 
-      // Jika check-in berubah dan check-out tidak lagi valid,
-      // kosongkan check-out agar pengguna memilih ulang.
       if (
         name === "checkIn" &&
         updated.checkOut &&
@@ -156,7 +251,6 @@ export default function ReservasiPage() {
         updated.checkOut = "";
       }
 
-      // Jika kamar berubah, pastikan jumlah tamu tidak melebihi kapasitas.
       if (name === "roomId") {
         const room = rooms.find((item) => item.id === Number(value));
 
@@ -172,19 +266,16 @@ export default function ReservasiPage() {
     setMessageType("");
   }
 
+  // Membuat reservasi.
   async function handleSubmit(event) {
     event.preventDefault();
     setMessage("");
     setMessageType("");
 
-    if (loadingUser) {
-      setMessage("Sedang memeriksa akun. Silakan tunggu sebentar.");
-      setMessageType("error");
-      return;
-    }
+    const today = getLocalDateString();
 
     if (!user?.id) {
-      setMessage("Silakan masuk ke akun terlebih dahulu untuk melakukan reservasi.");
+      setMessage("Silakan masuk ke akun terlebih dahulu.");
       setMessageType("error");
       return;
     }
@@ -221,7 +312,7 @@ export default function ReservasiPage() {
       guestCount > selectedRoom.capacity
     ) {
       setMessage(
-        `Jumlah tamu harus antara 1 sampai ${selectedRoom.capacity} orang untuk kamar ini.`
+        `Jumlah tamu harus antara 1 sampai ${selectedRoom.capacity} orang.`
       );
       setMessageType("error");
       return;
@@ -236,7 +327,6 @@ export default function ReservasiPage() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          userId: Number(user.id),
           roomId: Number(form.roomId),
           checkIn: form.checkIn,
           checkOut: form.checkOut,
@@ -251,7 +341,7 @@ export default function ReservasiPage() {
       }
 
       setMessage(
-        `Reservasi berhasil dibuat! Kode booking: ${result.data.bookingCode}. Total: ${formatRupiah(result.data.totalPrice)}. Status: ${result.data.status}.`
+        `Reservasi berhasil dibuat! Kode booking: ${result.data.bookingCode}. Total: ${formatRupiah(result.data.totalPrice)}.`
       );
       setMessageType("success");
 
@@ -261,16 +351,240 @@ export default function ReservasiPage() {
         checkOut: "",
         guests: "1",
       });
+
+      await loadReservations();
     } catch (error) {
-      setMessage(
-        error.message || "Terjadi kesalahan saat membuat reservasi."
-      );
+      setMessage(error.message || "Gagal membuat reservasi.");
       setMessageType("error");
     } finally {
       setSubmitting(false);
     }
   }
 
+  // Memilih bukti transfer.
+  function handleProofChange(reservationId, file) {
+    if (!file) return;
+
+    if (!ALLOWED_FILE_TYPES.includes(file.type)) {
+      window.alert("Format file harus JPG, PNG, atau WebP.");
+      return;
+    }
+
+    if (file.size > MAX_FILE_SIZE) {
+      window.alert("Ukuran file maksimal 5 MB.");
+      return;
+    }
+
+    const previewUrl = URL.createObjectURL(file);
+
+    setProofFiles((previous) => ({
+      ...previous,
+      [reservationId]: file,
+    }));
+
+    setProofPreviews((previous) => {
+      const oldUrl = previous[reservationId];
+
+      if (oldUrl) {
+        URL.revokeObjectURL(oldUrl);
+      }
+
+      return {
+        ...previous,
+        [reservationId]: previewUrl,
+      };
+    });
+  }
+
+  // Menghapus pilihan bukti transfer.
+  function removeProofFile(reservationId) {
+    const previewUrl = proofPreviews[reservationId];
+
+    if (previewUrl) {
+      URL.revokeObjectURL(previewUrl);
+    }
+
+    setProofFiles((previous) => ({
+      ...previous,
+      [reservationId]: null,
+    }));
+
+    setProofPreviews((previous) => ({
+      ...previous,
+      [reservationId]: null,
+    }));
+  }
+
+  // Membatalkan reservasi.
+  async function handleCancelReservation(reservationId) {
+    const confirmed = window.confirm(
+      "Apakah kamu yakin ingin membatalkan reservasi ini?"
+    );
+
+    if (!confirmed) return;
+
+    setCancellingId(reservationId);
+
+    try {
+      const response = await fetch(
+        `/api/reservations/${reservationId}/cancel`,
+        { method: "PATCH" }
+      );
+
+      const result = await response.json();
+
+      if (!response.ok || !result.success) {
+        throw new Error(result.message || "Reservasi gagal dibatalkan.");
+      }
+
+      await loadReservations();
+      window.alert(result.message || "Reservasi berhasil dibatalkan.");
+    } catch (error) {
+      window.alert(error.message || "Gagal membatalkan reservasi.");
+    } finally {
+      setCancellingId(null);
+    }
+  }
+
+  // Mengajukan pembayaran baru.
+  async function handlePayment(reservation) {
+    const paymentMethod = paymentMethods[reservation.id];
+    const selectedFile = proofFiles[reservation.id];
+
+    if (!paymentMethod) {
+      window.alert("Silakan pilih metode pembayaran terlebih dahulu.");
+      return;
+    }
+
+    if (paymentMethod === "TRANSFER_BANK" && !selectedFile) {
+      window.alert("Silakan pilih bukti transfer terlebih dahulu.");
+      return;
+    }
+
+    if (
+      paymentMethod === "TRANSFER_BANK" &&
+      !ALLOWED_FILE_TYPES.includes(selectedFile.type)
+    ) {
+      window.alert("Format file harus JPG, PNG, atau WebP.");
+      return;
+    }
+
+    if (
+      paymentMethod === "TRANSFER_BANK" &&
+      selectedFile.size > MAX_FILE_SIZE
+    ) {
+      window.alert("Ukuran bukti pembayaran maksimal 5 MB.");
+      return;
+    }
+
+    const methodLabel =
+      paymentMethod === "TRANSFER_BANK" ? "Transfer Bank" : "Tunai";
+
+    const confirmed = window.confirm(
+      `Ajukan pembayaran reservasi ${reservation.bookingCode} menggunakan ${methodLabel}?`
+    );
+
+    if (!confirmed) return;
+
+    setPayingId(reservation.id);
+
+    try {
+      let response;
+
+      if (paymentMethod === "TRANSFER_BANK") {
+        const formData = new FormData();
+        formData.append("paymentMethod", paymentMethod);
+        formData.append("paymentProof", selectedFile);
+
+        response = await fetch(
+          `/api/reservations/${reservation.id}/payment`,
+          {
+            method: "POST",
+            body: formData,
+          }
+        );
+      } else {
+        response = await fetch(
+          `/api/reservations/${reservation.id}/payment`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ paymentMethod }),
+          }
+        );
+      }
+
+      const result = await response.json();
+
+      if (!response.ok || !result.success) {
+        throw new Error(
+          result.message || `Pengajuan pembayaran gagal (${response.status}).`
+        );
+      }
+
+      removeProofFile(reservation.id);
+      await loadReservations();
+
+      window.alert(
+        result.message ||
+          "Pembayaran berhasil diajukan dan menunggu konfirmasi petugas."
+      );
+    } catch (error) {
+      console.error("Kesalahan pengajuan pembayaran:", error);
+      window.alert(
+        error.message || "Gagal mengajukan pembayaran. Silakan coba lagi."
+      );
+    } finally {
+      setPayingId(null);
+    }
+  }
+
+  // Mengunggah bukti untuk pembayaran yang sudah diajukan.
+  async function handleUploadProof(reservationId) {
+    const file = proofFiles[reservationId];
+
+    if (!file) {
+      window.alert("Pilih bukti transfer terlebih dahulu.");
+      return;
+    }
+
+    setUploadingProofId(reservationId);
+
+    try {
+      const formData = new FormData();
+      formData.append("paymentProof", file);
+
+      const response = await fetch(
+        `/api/reservations/${reservationId}/proof`,
+        {
+          method: "POST",
+          body: formData,
+        }
+      );
+
+      const result = await response.json();
+
+      if (!response.ok || !result.success) {
+        throw new Error(
+          result.message || "Gagal mengunggah bukti transfer."
+        );
+      }
+
+      removeProofFile(reservationId);
+      await loadReservations();
+
+      window.alert(result.message || "Bukti transfer berhasil diunggah.");
+    } catch (error) {
+      console.error("Upload proof error:", error);
+      window.alert(error.message || "Gagal mengunggah bukti transfer.");
+    } finally {
+      setUploadingProofId(null);
+    }
+  }
+
+  // Tampilan ketika memeriksa akun.
   if (loadingUser) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-[#F8F3EC] px-5 text-[#4B2E1C]">
@@ -282,6 +596,7 @@ export default function ReservasiPage() {
     );
   }
 
+  // Tampilan jika belum login.
   if (!user) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-[#F8F3EC] px-5 text-[#4B2E1C]">
@@ -298,26 +613,26 @@ export default function ReservasiPage() {
             Kamu perlu masuk ke akun terlebih dahulu sebelum memesan kamar.
           </p>
 
-          <a
+          <Link
             href="/login"
             className="mt-7 inline-block bg-[#6B452D] px-7 py-3 font-semibold text-white transition hover:bg-[#4B2E1C]"
           >
             Masuk ke Akun
-          </a>
+          </Link>
 
           <p className="mt-5 text-sm text-[#76604D]">
             Belum punya akun?{" "}
-            <a href="/register" className="font-semibold underline">
+            <Link href="/register" className="font-semibold underline">
               Daftar di sini
-            </a>
+            </Link>
           </p>
 
-          <a
+          <Link
             href="/"
             className="mt-6 inline-block text-sm text-[#8B6B50] hover:text-[#4B2E1C]"
           >
             ← Kembali ke Beranda
-          </a>
+          </Link>
         </section>
       </main>
     );
@@ -327,18 +642,18 @@ export default function ReservasiPage() {
     <main className="min-h-screen bg-[#F8F3EC] text-[#4B2E1C]">
       <header className="border-b border-[#E9DCCB] bg-[#FFF9F0]">
         <nav className="mx-auto flex max-w-5xl items-center justify-between gap-4 px-5 py-5">
-          <a href="/" className="text-xl font-bold tracking-[0.16em]">
+          <Link href="/" className="text-xl font-bold tracking-[0.16em]">
             NARA HOTEL
-          </a>
+          </Link>
 
           <div className="flex items-center gap-4">
             <span className="hidden text-sm text-[#76604D] sm:inline">
               Halo, {user.name}
             </span>
 
-            <a href="/" className="text-sm hover:text-[#B08050]">
+            <Link href="/" className="text-sm hover:text-[#B08050]">
               ← Kembali ke Beranda
-            </a>
+            </Link>
           </div>
         </nav>
       </header>
@@ -462,7 +777,6 @@ export default function ReservasiPage() {
                 name="checkIn"
                 type="date"
                 required
-                min={checkInMin}
                 value={form.checkIn}
                 onChange={handleChange}
                 className="w-full border border-[#D9C6B1] bg-white px-4 py-3 outline-none focus:border-[#8B5E3C]"
@@ -482,7 +796,7 @@ export default function ReservasiPage() {
                 name="checkOut"
                 type="date"
                 required
-                min={checkOutMin}
+                min={form.checkIn || undefined}
                 value={form.checkOut}
                 onChange={handleChange}
                 className="w-full border border-[#D9C6B1] bg-white px-4 py-3 outline-none focus:border-[#8B5E3C]"
@@ -519,12 +833,7 @@ export default function ReservasiPage() {
 
           <button
             type="submit"
-            disabled={
-              submitting ||
-              loading ||
-              rooms.length === 0 ||
-              !today
-            }
+            disabled={submitting || loading || rooms.length === 0}
             className="w-full bg-[#6B452D] px-6 py-4 text-sm font-semibold text-white transition hover:bg-[#4B2E1C] disabled:cursor-not-allowed disabled:bg-[#B9A99A]"
           >
             {submitting ? "Memproses Reservasi..." : "Ajukan Reservasi"}
@@ -535,6 +844,395 @@ export default function ReservasiPage() {
             dikonfirmasi.
           </p>
         </form>
+
+        {/* Riwayat reservasi */}
+        <section className="mt-10">
+          <div className="mb-5">
+            <p className="mb-2 text-xs font-semibold uppercase tracking-[0.25em] text-[#A57A50]">
+              Pemesanan Kamu
+            </p>
+
+            <h2 className="text-2xl font-semibold">
+              Riwayat Reservasi Saya
+            </h2>
+
+            <p className="mt-2 text-sm leading-6 text-[#76604D]">
+              Lihat kode booking, jadwal menginap, biaya, status reservasi,
+              dan pembayaran kamar kamu.
+            </p>
+          </div>
+
+          {loadingReservations ? (
+            <div className="border border-[#E5D5C2] bg-[#FFF9F0] p-6 text-center text-sm text-[#76604D]">
+              Memuat riwayat reservasi...
+            </div>
+          ) : reservationError ? (
+            <div className="border border-[#D9B4A5] bg-[#F8E9E3] p-5 text-sm text-[#873F2C]">
+              <p>{reservationError}</p>
+              <button
+                type="button"
+                onClick={loadReservations}
+                className="mt-3 font-semibold underline"
+              >
+                Coba muat ulang
+              </button>
+            </div>
+          ) : reservations.length === 0 ? (
+            <div className="border border-[#E5D5C2] bg-[#FFF9F0] p-8 text-center">
+              <p className="text-lg font-semibold">
+                Belum Ada Riwayat Reservasi
+              </p>
+              <p className="mt-2 text-sm leading-6 text-[#76604D]">
+                Reservasi yang berhasil kamu ajukan akan muncul di bagian ini.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {reservations.map((reservation) => {
+                const paymentStatus =
+                  reservation.paymentStatus || "BELUM_DIBAYAR";
+
+                const canPay =
+                  reservation.status !== "DIBATALKAN" &&
+                  paymentStatus !== "LUNAS" &&
+                  paymentStatus !== "MENUNGGU_KONFIRMASI";
+
+                const needsProof =
+                  paymentStatus === "MENUNGGU_KONFIRMASI" &&
+                  reservation.paymentMethod === "TRANSFER_BANK" &&
+                  !reservation.paymentProof;
+
+                const selectedFile = proofFiles[reservation.id];
+                const preview = proofPreviews[reservation.id];
+
+                return (
+                  <article
+                    key={reservation.id}
+                    className="border border-[#E5D5C2] bg-[#FFF9F0] p-5 shadow-sm md:p-6"
+                  >
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                      <div>
+                        <p className="text-xs uppercase tracking-wider text-[#A57A50]">
+                          Kode Booking
+                        </p>
+                        <p className="mt-1 break-all font-semibold">
+                          {reservation.bookingCode}
+                        </p>
+                      </div>
+
+                      <span
+                        className={`inline-flex w-fit border px-3 py-1 text-xs font-semibold ${warnaStatus(reservation.status)}`}
+                      >
+                        {labelStatus(reservation.status)}
+                      </span>
+                    </div>
+
+                    <div className="mt-5 grid gap-4 border-t border-[#E9DCCB] pt-4 sm:grid-cols-2">
+                      <div>
+                        <p className="text-xs text-[#8B6B50]">Tipe Kamar</p>
+                        <p className="mt-1 font-medium">
+                          {reservation.room?.roomType || "-"}
+                        </p>
+                        <p className="text-sm text-[#76604D]">
+                          Kamar {reservation.room?.roomNumber || "-"}
+                        </p>
+                      </div>
+
+                      <div>
+                        <p className="text-xs text-[#8B6B50]">Jumlah Tamu</p>
+                        <p className="mt-1 font-medium">
+                          {reservation.guests} orang
+                        </p>
+                      </div>
+
+                      <div>
+                        <p className="text-xs text-[#8B6B50]">Check-in</p>
+                        <p className="mt-1 font-medium">
+                          {formatTanggal(reservation.checkIn)}
+                        </p>
+                      </div>
+
+                      <div>
+                        <p className="text-xs text-[#8B6B50]">Check-out</p>
+                        <p className="mt-1 font-medium">
+                          {formatTanggal(reservation.checkOut)}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="mt-5 flex flex-col gap-1 border-t border-[#E9DCCB] pt-4 sm:flex-row sm:items-center sm:justify-between">
+                      <p className="text-sm text-[#76604D]">
+                        Total biaya menginap
+                      </p>
+                      <p className="text-lg font-bold text-[#6B452D]">
+                        {formatRupiah(reservation.totalPrice)}
+                      </p>
+                    </div>
+
+                    {/* Informasi pembayaran */}
+                    <div className="mt-5 border-t border-[#E9DCCB] pt-4">
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                        <div>
+                          <p className="text-sm font-semibold">
+                            Status Pembayaran
+                          </p>
+
+                          <p className="mt-1 text-sm text-[#76604D]">
+                            {reservation.paymentMethod === "TRANSFER_BANK"
+                              ? "Metode: Transfer Bank"
+                              : reservation.paymentMethod === "TUNAI"
+                                ? "Metode: Tunai"
+                                : "Metode belum dipilih"}
+                          </p>
+                        </div>
+
+                        <span
+                          className={`inline-flex w-fit border px-3 py-1 text-xs font-semibold ${warnaPembayaran(paymentStatus)}`}
+                        >
+                          {labelPembayaran(paymentStatus)}
+                        </span>
+                      </div>
+
+                      {/* Pembayaran baru */}
+                      {canPay && (
+                        <div className="mt-4">
+                          <label
+                            htmlFor={`payment-${reservation.id}`}
+                            className="mb-2 block text-sm font-semibold"
+                          >
+                            Pilih Metode Pembayaran
+                          </label>
+
+                          <select
+                            id={`payment-${reservation.id}`}
+                            value={paymentMethods[reservation.id] || ""}
+                            onChange={(event) => {
+                              setPaymentMethods((previous) => ({
+                                ...previous,
+                                [reservation.id]: event.target.value,
+                              }));
+
+                              removeProofFile(reservation.id);
+                            }}
+                            className="w-full border border-[#D9C6B1] bg-white px-4 py-3 text-sm outline-none focus:border-[#8B5E3C]"
+                          >
+                            <option value="">
+                              Pilih metode pembayaran
+                            </option>
+                            <option value="TRANSFER_BANK">
+                              Transfer Bank
+                            </option>
+                            <option value="TUNAI">Tunai</option>
+                          </select>
+
+                          {paymentMethods[reservation.id] ===
+                            "TRANSFER_BANK" && (
+                            <div className="mt-4 border border-[#E5D5C2] bg-[#F8F3EC] p-4">
+                              <label
+                                htmlFor={`new-proof-${reservation.id}`}
+                                className="mb-2 block text-sm font-semibold"
+                              >
+                                Unggah Bukti Transfer
+                              </label>
+
+                              <input
+                                id={`new-proof-${reservation.id}`}
+                                type="file"
+                                accept="image/jpeg,image/png,image/webp"
+                                onChange={(event) =>
+                                  handleProofChange(
+                                    reservation.id,
+                                    event.target.files?.[0]
+                                  )
+                                }
+                                className="block w-full text-sm"
+                              />
+
+                              <p className="mt-2 text-xs text-[#8B6B50]">
+                                JPG, PNG, atau WebP. Maksimal 5 MB.
+                              </p>
+
+                              {preview && (
+                                <div className="mt-4">
+                                  <img
+                                    src={preview}
+                                    alt="Preview bukti transfer"
+                                    className="max-h-64 border border-[#D9C6B1] object-contain"
+                                  />
+
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      removeProofFile(reservation.id)
+                                    }
+                                    className="mt-2 text-sm font-semibold text-red-700 underline"
+                                  >
+                                    Hapus gambar
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          )}
+
+                          <button
+                            type="button"
+                            onClick={() => handlePayment(reservation)}
+                            disabled={
+                              payingId === reservation.id ||
+                              (paymentMethods[reservation.id] ===
+                                "TRANSFER_BANK" &&
+                                !selectedFile)
+                            }
+                            className="mt-3 w-full bg-[#8B5E3C] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#6B452D] disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
+                          >
+                            {payingId === reservation.id
+                              ? "Memproses Pembayaran..."
+                              : "Bayar Sekarang"}
+                          </button>
+
+                          <p className="mt-2 text-xs leading-5 text-[#8B6B50]">
+                            Transfer bank wajib menyertakan bukti pembayaran.
+                            Pengajuan akan diperiksa oleh petugas hotel.
+                          </p>
+                        </div>
+                      )}
+
+                      {/* Pembayaran transfer yang belum memiliki bukti */}
+                      {needsProof && (
+                        <div className="mt-4 border border-[#E5D5C2] bg-[#F8F3EC] p-4">
+                          <p className="text-sm font-semibold">
+                            Unggah Bukti Transfer
+                          </p>
+
+                          <p className="mt-1 text-sm leading-6 text-[#76604D]">
+                            Pembayaran sudah diajukan, tetapi bukti transfer
+                            belum tersedia. Silakan unggah bukti agar petugas
+                            dapat memeriksanya.
+                          </p>
+
+                          <input
+                            id={`old-proof-${reservation.id}`}
+                            type="file"
+                            accept="image/jpeg,image/png,image/webp"
+                            onChange={(event) =>
+                              handleProofChange(
+                                reservation.id,
+                                event.target.files?.[0]
+                              )
+                            }
+                            className="mt-3 block w-full text-sm"
+                          />
+
+                          <p className="mt-2 text-xs text-[#8B6B50]">
+                            JPG, PNG, atau WebP. Maksimal 5 MB.
+                          </p>
+
+                          {preview && (
+                            <div className="mt-4">
+                              <img
+                                src={preview}
+                                alt="Preview bukti transfer"
+                                className="max-h-64 border border-[#D9C6B1] object-contain"
+                              />
+
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  removeProofFile(reservation.id)
+                                }
+                                className="mt-2 text-sm font-semibold text-red-700 underline"
+                              >
+                                Hapus gambar
+                              </button>
+                            </div>
+                          )}
+
+                          <button
+                            type="button"
+                            onClick={() =>
+                              handleUploadProof(reservation.id)
+                            }
+                            disabled={
+                              !selectedFile ||
+                              uploadingProofId === reservation.id
+                            }
+                            className="mt-4 w-full bg-[#6B452D] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#4B2E1C] disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
+                          >
+                            {uploadingProofId === reservation.id
+                              ? "Mengunggah..."
+                              : "Kirim Bukti Transfer"}
+                          </button>
+                        </div>
+                      )}
+
+                      {/* Bukti yang sudah tersimpan */}
+                      {reservation.paymentProof &&
+                        reservation.paymentMethod === "TRANSFER_BANK" && (
+                          <div className="mt-4 border border-green-200 bg-green-50 p-4">
+                            <p className="text-sm font-semibold text-green-800">
+                              Bukti pembayaran sudah diunggah.
+                            </p>
+
+                            <a
+                              href={reservation.paymentProof}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="mt-2 inline-block text-sm font-semibold text-[#6B452D] underline"
+                            >
+                              Lihat Bukti Pembayaran
+                            </a>
+                          </div>
+                        )}
+
+                      {paymentStatus === "MENUNGGU_KONFIRMASI" && (
+                        <p className="mt-3 text-sm leading-6 text-blue-800">
+                          Pengajuan pembayaran sedang menunggu pemeriksaan
+                          dan konfirmasi petugas hotel.
+                        </p>
+                      )}
+
+                      {paymentStatus === "LUNAS" && (
+                        <p className="mt-3 text-sm font-medium text-green-800">
+                          Pembayaran telah dikonfirmasi dan dinyatakan lunas.
+                        </p>
+                      )}
+
+                      {paymentStatus === "DITOLAK" && (
+                        <p className="mt-3 text-sm font-medium text-red-800">
+                          Pembayaran ditolak. Silakan ajukan pembayaran
+                          kembali atau hubungi petugas hotel.
+                        </p>
+                      )}
+                    </div>
+
+                    {/* Pembatalan reservasi */}
+                    {(reservation.status === "MENUNGGU" ||
+                      reservation.status === "DIKONFIRMASI") && (
+                      <div className="mt-5 border-t border-[#E9DCCB] pt-4">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            handleCancelReservation(reservation.id)
+                          }
+                          disabled={
+                            cancellingId === reservation.id ||
+                            payingId === reservation.id ||
+                            uploadingProofId === reservation.id
+                          }
+                          className="border border-red-300 px-5 py-2 text-sm font-semibold text-red-700 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {cancellingId === reservation.id
+                            ? "Membatalkan..."
+                            : "Batalkan Reservasi"}
+                        </button>
+                      </div>
+                    )}
+                  </article>
+                );
+              })}
+            </div>
+          )}
+        </section>
       </section>
 
       <footer className="bg-[#352319] px-5 py-6 text-center text-xs text-[#D7C4AF]">

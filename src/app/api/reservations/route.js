@@ -60,11 +60,19 @@ export async function GET() {
         checkOut: reservation.checkOut,
         guests: reservation.guests,
         totalPrice: Number(reservation.totalPrice),
+
+        // Informasi pembayaran
+        paymentStatus: reservation.paymentStatus,
+        paymentMethod: reservation.paymentMethod,
+        paymentProof: reservation.paymentProof,
+        paidAt: reservation.paidAt,
+
         room: {
           id: reservation.room.id,
           roomNumber: reservation.room.roomNumber,
           roomType: reservation.room.roomType.name,
         },
+
         createdAt: reservation.createdAt,
       })),
     });
@@ -265,7 +273,7 @@ export async function POST(request) {
       1000 + Math.random() * 9000
     )}`;
 
-    // 9. Simpan reservasi
+    // 9. Simpan reservasi dan status pembayaran awal
     const reservation = await prisma.reservation.create({
       data: {
         bookingCode,
@@ -276,6 +284,9 @@ export async function POST(request) {
         guests,
         totalPrice,
         status: "MENUNGGU",
+
+        // Pembayaran dimulai dengan status belum dibayar
+        paymentStatus: "BELUM_DIBAYAR",
       },
       include: {
         room: {
@@ -301,6 +312,11 @@ export async function POST(request) {
           nights,
           pricePerNight,
           totalPrice: Number(reservation.totalPrice),
+
+          // Informasi pembayaran
+          paymentStatus: reservation.paymentStatus,
+          paymentMethod: reservation.paymentMethod,
+
           room: {
             id: reservation.room.id,
             roomNumber: reservation.room.roomNumber,

@@ -1,26 +1,384 @@
+
 @import "tailwindcss";
 
+/* =========================
+   NARA HOTEL - THEME
+========================= */
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #f8eee2;
+  --foreground: #4b2e1c;
+  --cream: #fff8ee;
+  --beige: #ecd5b9;
+  --brown: #6b452d;
+  --dark-brown: #3d2619;
+  --gold: #c99b68;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
+  --font-sans: Arial, Helvetica, sans-serif;
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+* {
+  box-sizing: border-box;
+  scroll-behavior: smooth;
 }
 
 body {
+  margin: 0;
   background: var(--background);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
+}
+
+img {
+  display: block;
+  max-width: 100%;
+}
+
+a,
+button {
+  -webkit-tap-highlight-color: transparent;
+}
+
+button,
+a {
+  transition:
+    background-color 0.25s ease,
+    color 0.25s ease,
+    border-color 0.25s ease,
+    transform 0.25s ease,
+    box-shadow 0.25s ease;
+}
+
+/* =========================
+   NAVBAR
+========================= */
+
+body > div > main > header,
+main > header {
+  border-color: rgba(255, 248, 238, 0.25);
+  background: rgba(255, 248, 238, 0.96);
+  box-shadow: 0 4px 24px rgba(61, 38, 25, 0.06);
+  backdrop-filter: blur(16px);
+}
+
+main > header nav {
+  min-height: 72px;
+}
+
+main > header nav > a:first-child > div:first-child {
+  border-color: var(--gold);
+  color: var(--brown);
+  background: #fffaf3;
+  box-shadow: inset 0 0 0 3px rgba(201, 155, 104, 0.08);
+}
+
+main > header nav h1 {
+  font-family: Georgia, "Times New Roman", serif;
+  letter-spacing: 0.13em;
+}
+
+main > header nav a,
+main > header nav button {
+  border-radius: 5px;
+}
+
+/* =========================
+   HERO - FOTO LATAR
+========================= */
+
+#beranda {
+  min-height: 610px;
+  overflow: hidden;
+  isolation: isolate;
+  background-position: center 52%;
+  background-size: cover;
+}
+
+#beranda::before {
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  background:
+    linear-gradient(
+      90deg,
+      rgba(48, 29, 17, 0.84) 0%,
+      rgba(68, 42, 25, 0.64) 43%,
+      rgba(54, 33, 20, 0.12) 100%
+    ),
+    linear-gradient(
+      0deg,
+      rgba(49, 30, 18, 0.32),
+      transparent 48%
+    );
+  content: "";
+  pointer-events: none;
+}
+
+#beranda h2 {
+  max-width: 700px;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: clamp(2.7rem, 5vw, 4.7rem);
+  font-weight: 500;
+  line-height: 1.08;
+  letter-spacing: -0.035em;
+  text-wrap: balance;
+}
+
+#beranda p {
+  text-shadow: 0 1px 12px rgba(35, 20, 12, 0.2);
+}
+
+#beranda a {
+  border-radius: 5px;
+}
+
+#beranda a:first-child:hover {
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+  transform: translateY(-2px);
+}
+
+#beranda a:nth-child(2):hover {
+  border-color: #fff8ee;
+  background: rgba(255, 248, 238, 0.13);
+}
+
+/* =========================
+   SECTION TENTANG HOTEL
+========================= */
+
+#tentang {
+  position: relative;
+  overflow: hidden;
+  background:
+    radial-gradient(
+      ellipse at 85% 50%,
+      rgba(222, 190, 154, 0.2),
+      transparent 50%
+    ),
+    #faf3e9;
+}
+
+#tentang h2,
+#kamar h2,
+#fasilitas h2,
+#reservasi h2 {
+  font-family: Georgia, "Times New Roman", serif;
+  font-weight: 500;
+  letter-spacing: -0.025em;
+}
+
+#tentang img {
+  border: 1px solid rgba(255, 248, 238, 0.9);
+  border-radius: 8px;
+  box-shadow: 0 18px 50px rgba(80, 49, 29, 0.12);
+}
+
+#tentang > div > div:last-child > div {
+  border-radius: 0 0 0 8px;
+  box-shadow: 0 8px 25px rgba(61, 38, 25, 0.12);
+}
+
+/* =========================
+   PILIHAN KAMAR
+========================= */
+
+#kamar {
+  position: relative;
+  overflow: hidden;
+  background:
+    radial-gradient(
+      ellipse at 0% 10%,
+      rgba(255, 250, 242, 0.72),
+      transparent 42%
+    ),
+    linear-gradient(145deg, #f1e2d0, #e8d2b9 65%, #f4e7d7);
+}
+
+#kamar article {
+  overflow: hidden;
+  border: 1px solid rgba(126, 83, 50, 0.12);
+  border-radius: 9px;
+  background: rgba(255, 249, 240, 0.97);
+  box-shadow: 0 8px 25px rgba(83, 52, 31, 0.07);
+}
+
+#kamar article:hover {
+  border-color: rgba(160, 111, 70, 0.45);
+  box-shadow: 0 18px 35px rgba(83, 52, 31, 0.15);
+  transform: translateY(-5px);
+}
+
+#kamar article > div:first-child {
+  overflow: hidden;
+  background: #e3d1bc;
+}
+
+#kamar article > div:first-child img {
+  height: 245px;
+  width: 100%;
+  object-fit: cover;
+  transition: transform 0.6s ease;
+}
+
+#kamar article:hover > div:first-child img {
+  transform: scale(1.045);
+}
+
+#kamar article h3 {
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 1.3rem;
+  font-weight: 600;
+  color: #4b2e1c;
+}
+
+#kamar article a {
+  border-radius: 5px;
+}
+
+#kamar article a:hover {
+  box-shadow: 0 5px 15px rgba(61, 38, 25, 0.18);
+}
+
+#kamar article span {
+  border-radius: 4px;
+}
+
+/* =========================
+   FASILITAS
+========================= */
+
+#fasilitas {
+  background:
+    radial-gradient(
+      ellipse at 100% 0%,
+      rgba(218, 185, 149, 0.24),
+      transparent 44%
+    ),
+    #faf3e9;
+}
+
+#fasilitas article {
+  border-radius: 8px;
+  background: rgba(255, 249, 240, 0.82);
+  box-shadow: 0 5px 20px rgba(83, 52, 31, 0.035);
+}
+
+#fasilitas article:hover {
+  background: #fffaf3;
+  box-shadow: 0 12px 28px rgba(83, 52, 31, 0.09);
+  transform: translateY(-4px);
+}
+
+#fasilitas article > div:first-child {
+  border-radius: 50%;
+  background: #f0e0cd;
+}
+
+/* =========================
+   RESERVASI CTA
+========================= */
+
+#reservasi {
+  position: relative;
+  overflow: hidden;
+  background:
+    radial-gradient(
+      ellipse at 100% 0%,
+      rgba(201, 155, 104, 0.22),
+      transparent 48%
+    ),
+    linear-gradient(115deg, #4b2e1c, #704a30 65%, #5b3a27);
+}
+
+#reservasi h2 {
+  color: #fff8ee;
+}
+
+#reservasi a {
+  border-radius: 5px;
+  box-shadow: 0 5px 18px rgba(31, 18, 10, 0.14);
+}
+
+#reservasi a:hover {
+  box-shadow: 0 9px 25px rgba(31, 18, 10, 0.22);
+  transform: translateY(-2px);
+}
+
+/* =========================
+   FOOTER
+========================= */
+
+footer {
+  background:
+    radial-gradient(
+      ellipse at 90% 0%,
+      rgba(140, 96, 59, 0.15),
+      transparent 45%
+    ),
+    #352319;
+}
+
+footer h2 {
+  font-family: Georgia, "Times New Roman", serif;
+}
+
+footer a:hover {
+  color: #e6c49b;
+}
+
+/* =========================
+   RESPONSIVE
+========================= */
+
+@media (max-width: 767px) {
+  main > header nav {
+    min-height: 64px;
+  }
+
+  #beranda {
+    min-height: 570px;
+    background-position: 60% center;
+  }
+
+  #beranda h2 {
+    max-width: 540px;
+    font-size: clamp(2.25rem, 10vw, 3.4rem);
+  }
+
+  #beranda::before {
+    background:
+      linear-gradient(
+        90deg,
+        rgba(48, 29, 17, 0.86),
+        rgba(48, 29, 17, 0.53)
+      ),
+      linear-gradient(
+        0deg,
+        rgba(48, 29, 17, 0.25),
+        transparent
+      );
+  }
+
+  #tentang img {
+    height: 300px;
+  }
+
+  #kamar article > div:first-child img {
+    height: 230px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
 }

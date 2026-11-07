@@ -6,13 +6,15 @@ import { verifySession } from "@/lib/session";
 
 export async function GET() {
   try {
-    // Periksa sesi login
     const cookieStore = await cookies();
     const token = cookieStore.get("nara_session")?.value;
 
     if (!token) {
       return NextResponse.json(
-        { success: false, message: "Silakan login terlebih dahulu." },
+        {
+          success: false,
+          message: "Silakan login terlebih dahulu.",
+        },
         { status: 401 }
       );
     }
@@ -21,15 +23,20 @@ export async function GET() {
 
     if (!session?.userId) {
       return NextResponse.json(
-        { success: false, message: "Sesi login tidak valid." },
+        {
+          success: false,
+          message: "Sesi login tidak valid.",
+        },
         { status: 401 }
       );
     }
 
-    // Pastikan pengguna adalah resepsionis atau admin
     const user = await prisma.user.findUnique({
       where: { id: Number(session.userId) },
-      select: { id: true, role: true },
+      select: {
+        id: true,
+        role: true,
+      },
     });
 
     if (!user || !["RESEPSIONIS", "ADMIN"].includes(user.role)) {
@@ -42,7 +49,6 @@ export async function GET() {
       );
     }
 
-    // Ambil seluruh reservasi beserta data tamu dan kamar
     const reservations = await prisma.reservation.findMany({
       include: {
         user: {
@@ -69,16 +75,28 @@ export async function GET() {
         id: reservation.id,
         bookingCode: reservation.bookingCode,
         status: reservation.status,
+
+        // Data pembayaran
+        paymentStatus: reservation.paymentStatus,
+        paymentMethod: reservation.paymentMethod,
+        paymentProof: reservation.paymentProof,
+        paidAt: reservation.paidAt,
+
+        // Data reservasi
         checkIn: reservation.checkIn,
         checkOut: reservation.checkOut,
         guests: reservation.guests,
         totalPrice: Number(reservation.totalPrice),
         createdAt: reservation.createdAt,
+
+        // Data tamu
         guest: {
           id: reservation.user.id,
           name: reservation.user.name,
           email: reservation.user.email,
         },
+
+        // Data kamar
         room: {
           id: reservation.room.id,
           roomNumber: reservation.room.roomNumber,
