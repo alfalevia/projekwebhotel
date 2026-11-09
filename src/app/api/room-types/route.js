@@ -2,10 +2,12 @@
 import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 
-export async function GET() {
+export async function GET(request) {
   try {
     const roomTypes = await prisma.roomType.findMany({
-      orderBy: { price: "asc" },
+      orderBy: {
+        price: "asc",
+      },
       include: {
         rooms: {
           select: {
@@ -14,7 +16,9 @@ export async function GET() {
             floor: true,
             status: true,
           },
-          orderBy: { roomNumber: "asc" },
+          orderBy: {
+            roomNumber: "asc",
+          },
         },
       },
     });
@@ -40,7 +44,9 @@ export async function GET() {
         success: false,
         message: "Gagal mengambil data tipe kamar.",
       },
-      { status: 500 }
+      {
+        status: 500,
+      }
     );
   }
 }
