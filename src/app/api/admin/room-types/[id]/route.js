@@ -45,6 +45,56 @@ async function cekAdmin() {
   return { user };
 }
 
+function validasiFasilitas(facilities) {
+  if (
+    !Array.isArray(facilities) ||
+    facilities.some(
+      (item) => typeof item !== "string" || !item.trim()
+    )
+  ) {
+    return {
+      valid: false,
+      message: "Daftar fasilitas tidak valid.",
+    };
+  }
+
+  return {
+    valid: true,
+    data: [...new Set(facilities.map((item) => item.trim()))],
+  };
+}
+
+function validasiFoto(imageUrl) {
+  if (imageUrl === null || imageUrl === "") {
+    return { valid: true, data: null };
+  }
+
+  if (typeof imageUrl !== "string" || imageUrl.length > 2048) {
+    return {
+      valid: false,
+      message: "Alamat foto tidak valid.",
+    };
+  }
+
+  try {
+    const url = new URL(imageUrl);
+
+    if (url.protocol !== "http:" && url.protocol !== "https:") {
+      return {
+        valid: false,
+        message: "URL foto harus menggunakan HTTP atau HTTPS.",
+      };
+    }
+
+    return { valid: true, data: imageUrl.trim() };
+  } catch {
+    return {
+      valid: false,
+      message: "URL foto tidak valid.",
+    };
+  }
+}
+
 export async function PATCH(request, { params }) {
   try {
     const auth = await cekAdmin();
@@ -86,7 +136,26 @@ export async function PATCH(request, { params }) {
         );
       }
 
-      data.name = body.name.trim();
+      const name = body.name.trim();
+
+      const duplicate = await prisma.roomType.findFirst({
+        where: {
+          name: {
+            equals: name,
+            mode: "insensitive",
+          },
+          NOT: { id: roomTypeId },
+        },
+      });
+
+      if (duplicate) {
+        return NextResponse.json(
+          { success: false, message: "Nama tipe kamar sudah digunakan." },
+          { status: 409 }
+        );
+      }
+
+      data.name = name;
     }
 
     if (body.description !== undefined) {
@@ -135,6 +204,32 @@ export async function PATCH(request, { params }) {
       data.price = price;
     }
 
+    if (body.facilities !== undefined) {
+      const fasilitas = validasiFasilitas(body.facilities);
+
+      if (!fasilitas.valid) {
+        return NextResponse.json(
+          { success: false, message: fasilitas.message },
+          { status: 400 }
+        );
+      }
+
+      data.facilities = fasilitas.data;
+    }
+
+    if (body.imageUrl !== undefined) {
+      const foto = validasiFoto(body.imageUrl);
+
+      if (!foto.valid) {
+        return NextResponse.json(
+          { success: false, message: foto.message },
+          { status: 400 }
+        );
+      }
+
+      data.imageUrl = foto.data;
+    }
+
     if (Object.keys(data).length === 0) {
       return NextResponse.json(
         { success: false, message: "Tidak ada data yang diubah." },
@@ -156,6 +251,8 @@ export async function PATCH(request, { params }) {
         description: roomType.description,
         capacity: roomType.capacity,
         price: roomType.price.toString(),
+        facilities: roomType.facilities,
+        imageUrl: roomType.imageUrl,
       },
     });
   } catch (error) {

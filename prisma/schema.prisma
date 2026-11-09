@@ -27,6 +27,7 @@ enum ReservationStatus {
   CHECK_IN
   CHECK_OUT
   DIBATALKAN
+  DITOLAK
 }
 
 enum PaymentStatus {
@@ -51,7 +52,8 @@ model User {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  reservations Reservation[]
+  reservations      Reservation[]
+  pushSubscriptions PushSubscription[]
 }
 
 model RoomType {
@@ -60,6 +62,8 @@ model RoomType {
   description String?
   capacity    Int
   price       Decimal  @db.Decimal(12, 2)
+  facilities  String[] @default([])
+  imageUrl    String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -75,8 +79,9 @@ model Room {
   createdAt  DateTime   @default(now())
   updatedAt  DateTime   @updatedAt
 
-  roomType     RoomType      @relation(fields: [roomTypeId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  reservations Reservation[]
+  roomType          RoomType           @relation(fields: [roomTypeId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  reservations      Reservation[]
+  pushSubscriptions PushSubscription[]
 
   @@index([roomTypeId])
 }
@@ -106,4 +111,19 @@ model Reservation {
   @@index([roomId, checkIn, checkOut])
   @@index([userId, createdAt])
   @@index([paymentStatus])
+}
+
+model PushSubscription {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  createdAt DateTime @default(now())
+
+  user   User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  room   Room? @relation(fields: [roomId], references: [id])
+  roomId Int?
+
+  @@index([userId])
 }

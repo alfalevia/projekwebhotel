@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import prisma from "@/lib/prisma";
 import { verifySession } from "@/lib/session";
+import { queuePushNotification } from "@/lib/queue-push-notification";
 
 export async function PATCH(request, { params }) {
   try {
@@ -49,7 +50,12 @@ export async function PATCH(request, { params }) {
 
     const reservation = await prisma.reservation.findUnique({
       where: { id: reservationId },
-      select: { id: true, bookingCode: true, status: true },
+      select: {
+        id: true,
+        userId: true,
+        bookingCode: true,
+        status: true,
+      },
     });
 
     if (!reservation) {
@@ -85,6 +91,17 @@ export async function PATCH(request, { params }) {
         },
         { status: 409 }
       );
+    }
+
+    // Masukkan notifikasi konfirmasi ke antrean background worker.
+    try {
+      await queuePushNotification(reservation.userId, {
+        title: "NARA HOTEL",
+        body: `Reservasi ${reservation.bookingCode} telah dikonfirmasi oleh resepsionis.`,
+        url: "/",
+      });
+    } catch (pushError) {
+      console.error("CONFIRMATION QUEUE ERROR:", pushError);
     }
 
     return NextResponse.json({

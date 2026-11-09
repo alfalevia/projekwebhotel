@@ -1,6 +1,10 @@
+
 "use client";
 
+import Image from "next/image";
+import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import NotificationButton from "@/components/NotificationButton";
 
 const roomImages = {
   "Standard Room":
@@ -8,10 +12,10 @@ const roomImages = {
   "Deluxe Room":
     "https://images.unsplash.com/photo-1590490360182-c33d57733427?auto=format&fit=crop&w=1000&q=85",
   "Suite Room":
-    "https://images.unsplash.com/photo-1611892440504-0a1b1c5c9c9a?auto=format&fit=crop&w=1000&q=85",
+    "https://images.unsplash.com/photo-1611892440504-42a792e24d32?auto=format&fit=crop&w=1000&q=85",
 };
 
-const facilities = [
+const hotelFacilities = [
   "Kamar Nyaman",
   "Restoran",
   "Kolam Renang",
@@ -27,7 +31,18 @@ function formatRupiah(price) {
   }).format(Number(price || 0));
 }
 
+function getToday() {
+  const date = new Date();
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+
+  return `${year}-${month}-${day}`;
+}
+
 export default function Home() {
+  const router = useRouter();
+
   const [rooms, setRooms] = useState([]);
   const [loadingRooms, setLoadingRooms] = useState(true);
   const [roomError, setRoomError] = useState("");
@@ -39,42 +54,43 @@ export default function Home() {
   const [checkIn, setCheckIn] = useState("");
   const [checkOut, setCheckOut] = useState("");
   const [guests, setGuests] = useState("1");
-
   const [today, setToday] = useState("");
 
- // Mengambil tanggal setelah komponen tampil di browser.
-useEffect(() => {
-  let active = true;
+  // Mengambil tanggal setelah halaman dimuat di browser.
+  useEffect(() => {
+    let active = true;
 
-  Promise.resolve().then(() => {
-    if (active) {
-      setToday(new Date().toISOString().split("T")[0]);
+    async function loadToday() {
+      await Promise.resolve();
+
+      if (active) {
+        setToday(getToday());
+      }
     }
-  });
 
-  return () => {
-    active = false;
-  };
-}, []);
+    loadToday();
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
   // Mengambil data tipe kamar dari database.
   useEffect(() => {
     let active = true;
 
     async function fetchRooms() {
       try {
-        setLoadingRooms(true);
-        setRoomError("");
-
-        const response = await fetch("/api/room-types");
-
-        if (!response.ok) {
-          throw new Error("Gagal mengambil data kamar dari server.");
-        }
+        const response = await fetch("/api/room-types", {
+          cache: "no-store",
+        });
 
         const result = await response.json();
 
-        if (!result.success || !Array.isArray(result.data)) {
-          throw new Error("Format data kamar tidak sesuai.");
+        if (!response.ok || !result.success || !Array.isArray(result.data)) {
+          throw new Error(
+            result.message || "Gagal mengambil data kamar dari server."
+          );
         }
 
         if (active) {
@@ -82,9 +98,7 @@ useEffect(() => {
         }
       } catch (error) {
         if (active) {
-          setRoomError(
-            error.message || "Terjadi kesalahan saat mengambil data kamar."
-          );
+          setRoomError(error.message || "Gagal mengambil data kamar.");
         }
       } finally {
         if (active) {
@@ -100,27 +114,41 @@ useEffect(() => {
     };
   }, []);
 
-  // Memeriksa sesi login pengguna.
+  // Memeriksa sesi login dengan batas waktu 5 detik.
   useEffect(() => {
     let active = true;
+    const controller = new AbortController();
+
+    const timeout = setTimeout(() => {
+      controller.abort();
+    }, 5000);
 
     async function fetchUser() {
       try {
-        const response = await fetch("/api/me");
+        const response = await fetch("/api/me", {
+          method: "GET",
+          credentials: "same-origin",
+          cache: "no-store",
+          signal: controller.signal,
+        });
+
         const result = await response.json();
 
-        if (active && response.ok && result.success) {
-          setUser(result.data);
-        } else if (active) {
-          setUser(null);
+        if (active) {
+          if (response.ok && result.success && result.data) {
+            setUser(result.data);
+          } else {
+            setUser(null);
+          }
         }
       } catch (error) {
-        console.error("Gagal memeriksa sesi login:", error);
-
         if (active) {
+          console.error("Gagal memeriksa sesi login:", error);
           setUser(null);
         }
       } finally {
+        clearTimeout(timeout);
+
         if (active) {
           setLoadingUser(false);
         }
@@ -131,10 +159,12 @@ useEffect(() => {
 
     return () => {
       active = false;
+      clearTimeout(timeout);
+      controller.abort();
     };
   }, []);
 
-  // Keluar dari akun.
+  // Logout.
   async function handleLogout() {
     const confirmed = window.confirm(
       "Apakah kamu yakin ingin keluar dari akun?"
@@ -147,36 +177,43 @@ useEffect(() => {
     try {
       const response = await fetch("/api/logout", {
         method: "POST",
+        credentials: "same-origin",
       });
 
       const result = await response.json();
 
       if (!response.ok || !result.success) {
-        alert(result.message || "Gagal keluar dari akun.");
+        window.alert(result.message || "Gagal keluar dari akun.");
         return;
       }
 
       setUser(null);
-      window.location.href = "/";
+      router.push("/");
+      router.refresh();
     } catch (error) {
       console.error("Logout error:", error);
-      alert("Terjadi kesalahan saat keluar. Silakan coba lagi.");
+      window.alert("Terjadi kesalahan saat keluar. Silakan coba lagi.");
     } finally {
       setLoggingOut(false);
     }
   }
 
-  // Form pencarian mengarahkan pengunjung ke bagian pilihan kamar.
+  // Validasi pencarian kamar.
   function handleSearch(event) {
     event.preventDefault();
 
     if (!checkIn || !checkOut) {
-      alert("Silakan pilih tanggal check-in dan check-out.");
+      window.alert("Silakan pilih tanggal check-in dan check-out.");
+      return;
+    }
+
+    if (checkIn < today) {
+      window.alert("Tanggal check-in tidak boleh sebelum hari ini.");
       return;
     }
 
     if (checkOut <= checkIn) {
-      alert("Tanggal check-out harus setelah tanggal check-in.");
+      window.alert("Tanggal check-out harus setelah tanggal check-in.");
       return;
     }
 
@@ -185,9 +222,31 @@ useEffect(() => {
     });
   }
 
+  // Membuat URL reservasi berdasarkan pilihan pengguna.
+  function getReservationUrl(roomTypeId) {
+    const params = new URLSearchParams({
+      roomTypeId: String(roomTypeId),
+      guests,
+      checkIn,
+      checkOut,
+    });
+
+    return `/reservasi?${params.toString()}`;
+  }
+
+  // Tombol pesan kamar.
+  function handleBook(roomTypeId) {
+    if (!user) {
+      router.push("/login");
+      return;
+    }
+
+    router.push(getReservationUrl(roomTypeId));
+  }
+
   return (
     <main className="min-h-screen overflow-hidden bg-[#F7E9D8] text-[#4B3020]">
-      {/* HERO DAN NAVBAR */}
+      {/* HERO */}
       <section
         id="beranda"
         className="relative min-h-[610px] bg-cover bg-center md:min-h-[690px]"
@@ -234,19 +293,25 @@ useEffect(() => {
 
             <div className="flex shrink-0 items-center gap-2">
               {loadingUser ? (
-                <span className="text-xs text-white">Memuat...</span>
+                <span className="text-xs text-white">
+                  Memuat...
+                </span>
               ) : user ? (
                 <>
                   <span className="hidden text-sm text-white sm:inline">
                     Halo, {user.name}
                   </span>
 
-                  <a
-                    href="/reservasi"
+                  <button
+                    type="button"
+                    onClick={() => router.push("/reservasi")}
                     className="rounded-full border border-[#E9C69D] bg-[#6B452D]/80 px-5 py-2.5 text-sm font-semibold text-white hover:bg-[#4B3020]"
                   >
                     Reservasi
-                  </a>
+                  </button>
+
+                  <NotificationButton />
+
 
                   <button
                     type="button"
@@ -258,18 +323,19 @@ useEffect(() => {
                   </button>
                 </>
               ) : (
-                <a
-                  href="/login"
+                <button
+                  type="button"
+                  onClick={() => router.push("/login")}
                   className="rounded-full border border-[#E9C69D] bg-[#57371F]/80 px-5 py-2.5 text-sm font-semibold text-white shadow-lg hover:bg-[#3D281C]"
                 >
                   Masuk
-                </a>
+                </button>
               )}
             </div>
           </nav>
         </header>
 
-        {/* HERO TEXT */}
+        {/* HERO CONTENT */}
         <div className="relative z-10 mx-auto flex min-h-[610px] max-w-7xl items-center px-6 pb-24 pt-28 md:min-h-[690px] md:px-10">
           <div className="max-w-2xl text-[#FFF8EE]">
             <div className="mb-5 flex items-center gap-4">
@@ -312,7 +378,13 @@ useEffect(() => {
                   type="date"
                   value={checkIn}
                   min={today || undefined}
-                  onChange={(event) => setCheckIn(event.target.value)}
+                  onChange={(event) => {
+                    setCheckIn(event.target.value);
+
+                    if (checkOut && checkOut <= event.target.value) {
+                      setCheckOut("");
+                    }
+                  }}
                   className="mt-1 w-full bg-transparent text-xs text-[#795D43] outline-none"
                   aria-label="Tanggal check-in"
                 />
@@ -346,12 +418,11 @@ useEffect(() => {
                   className="mt-1 w-full bg-transparent text-xs text-[#795D43] outline-none"
                   aria-label="Jumlah tamu"
                 >
-                  <option value="1">1 Tamu</option>
-                  <option value="2">2 Tamu</option>
-                  <option value="3">3 Tamu</option>
-                  <option value="4">4 Tamu</option>
-                  <option value="5">5 Tamu</option>
-                  <option value="6">6 Tamu</option>
+                  {[1, 2, 3, 4, 5, 6].map((number) => (
+                    <option key={number} value={number}>
+                      {number} Tamu
+                    </option>
+                  ))}
                 </select>
               </span>
             </label>
@@ -365,7 +436,7 @@ useEffect(() => {
           </form>
         </div>
 
-        {/* PEMBATAS GELOMBANG */}
+        {/* PEMISAH HERO */}
         <div className="pointer-events-none absolute -bottom-[2px] left-0 z-10 w-full overflow-hidden leading-none">
           <svg
             viewBox="0 0 1440 120"
@@ -405,12 +476,13 @@ useEffect(() => {
               </p>
             </div>
 
-            <a
-              href="/reservasi"
+            <button
+              type="button"
+              onClick={() => router.push("/reservasi")}
               className="inline-flex w-fit items-center rounded-full border border-[#805735] px-6 py-3 font-serif text-xs font-semibold text-[#57371F] hover:bg-[#EBD5BC]"
             >
               Lihat Semua Kamar
-            </a>
+            </button>
           </div>
 
           {loadingRooms && (
@@ -449,19 +521,28 @@ useEffect(() => {
                   (item) => item.status === "TERSEDIA"
                 );
 
+                const roomFacilities = Array.isArray(room.facilities)
+                  ? room.facilities
+                  : [];
+
+                const roomImage =
+                  room.imageUrl ||
+                  roomImages[room.name] ||
+                  roomImages["Standard Room"];
+
                 return (
                   <article
                     key={room.id}
                     className="group overflow-hidden rounded-xl border border-[#E7CFB5] bg-[#FFF4E7] shadow-sm transition duration-300 hover:-translate-y-1 hover:shadow-xl"
                   >
-                    <div className="h-[205px] overflow-hidden md:h-[220px]">
-                      <img
-                        src={
-                          roomImages[room.name] ||
-                          roomImages["Standard Room"]
-                        }
+                    <div className="relative h-[205px] overflow-hidden md:h-[220px]">
+                      <Image
+                        src={roomImage}
                         alt={room.name}
-                        className="h-full w-full object-cover transition duration-700 group-hover:scale-105"
+                        fill
+                        unoptimized
+                        sizes="(max-width: 768px) 100vw, (max-width: 1024px) 50vw, 33vw"
+                        className="object-cover transition duration-700 group-hover:scale-105"
                       />
                     </div>
 
@@ -480,6 +561,23 @@ useEffect(() => {
                         {room.description ||
                           "Kenyamanan dan suasana hangat untuk menemani perjalanan Anda."}
                       </p>
+
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {roomFacilities.length > 0 ? (
+                          roomFacilities.map((facility, index) => (
+                            <span
+                              key={`${room.id}-facility-${index}`}
+                              className="rounded-full border border-[#DCC2A5] bg-[#F7E9D8] px-3 py-1 text-[10px] text-[#684A31]"
+                            >
+                              {facility}
+                            </span>
+                          ))
+                        ) : (
+                          <span className="text-[10px] text-[#947B63]">
+                            Informasi fasilitas belum tersedia.
+                          </span>
+                        )}
+                      </div>
 
                       <div className="mt-3 flex items-center justify-between border-t border-[#E8D5C0] pt-3">
                         <span className="text-[11px] text-[#80664D]">
@@ -500,21 +598,18 @@ useEffect(() => {
                       </div>
 
                       <div className="mt-3 flex justify-end">
-                        <a
-                          href={user ? "/reservasi" : "/login"}
-                          aria-disabled={availableRooms.length === 0}
-                          className={`inline-flex items-center text-xs font-semibold ${
-                            availableRooms.length > 0
-                              ? "text-[#68452B] hover:text-[#A16E43]"
-                              : "pointer-events-none text-[#A99A8B]"
-                          }`}
+                        <button
+                          type="button"
+                          onClick={() => handleBook(room.id)}
+                          disabled={availableRooms.length === 0}
+                          className="inline-flex items-center text-xs font-semibold text-[#68452B] hover:text-[#A16E43] disabled:cursor-not-allowed disabled:text-[#A99A8B]"
                         >
                           {availableRooms.length === 0
                             ? "Tidak tersedia"
                             : user
                               ? "Pesan Sekarang"
                               : "Masuk untuk Memesan"}
-                        </a>
+                        </button>
                       </div>
                     </div>
                   </article>
@@ -525,7 +620,7 @@ useEffect(() => {
         </div>
       </section>
 
-      {/* FASILITAS UNGGULAN */}
+      {/* FASILITAS */}
       <section
         id="fasilitas"
         className="bg-[#F7E9D8] px-5 py-3 md:px-10 md:py-5"
@@ -540,7 +635,7 @@ useEffect(() => {
           </div>
 
           <div className="grid flex-1 grid-cols-2 gap-5 sm:grid-cols-3 md:grid-cols-5">
-            {facilities.map((facility) => (
+            {hotelFacilities.map((facility) => (
               <div
                 key={facility}
                 className="flex items-center justify-center text-center"
@@ -561,7 +656,7 @@ useEffect(() => {
         </div>
       </section>
 
-      {/* PENGALAMAN MENGINAP */}
+      {/* TENTANG HOTEL */}
       <section
         id="tentang"
         className="relative overflow-hidden bg-[#F7E9D8] px-5 pb-20 pt-12 md:px-10 md:pb-28 md:pt-16"
@@ -570,10 +665,13 @@ useEffect(() => {
 
         <div className="relative mx-auto grid max-w-7xl items-center gap-10 md:grid-cols-2">
           <div className="relative">
-            <div className="overflow-hidden rounded-tl-[150px] rounded-br-[100px] border-[5px] border-[#FFF2E2] shadow-xl">
-              <img
+            <div className="relative overflow-hidden rounded-tl-[150px] rounded-br-[100px] border-[5px] border-[#FFF2E2] shadow-xl">
+              <Image
                 src="https://images.unsplash.com/photo-1600210492486-724fe5c67fb0?auto=format&fit=crop&w=1200&q=85"
                 alt="Suasana interior NARA HOTEL"
+                width={1200}
+                height={800}
+                unoptimized
                 className="h-[330px] w-full object-cover md:h-[420px]"
               />
             </div>
@@ -604,17 +702,18 @@ useEffect(() => {
               NARA HOTEL.
             </p>
 
-            <a
-              href="/reservasi"
+            <button
+              type="button"
+              onClick={() => router.push("/reservasi")}
               className="mt-7 inline-flex items-center rounded-full border border-[#805735] bg-[#70492D] px-6 py-3 font-serif text-xs font-semibold text-white hover:bg-[#4B3020]"
             >
               Tentang Kami
-            </a>
+            </button>
           </div>
         </div>
       </section>
 
-      {/* KONTAK DAN FOOTER */}
+      {/* FOOTER */}
       <footer
         id="kontak"
         className="bg-[#3D281C] px-6 pb-6 pt-12 text-[#FFF4E7] md:px-10"
@@ -657,12 +756,13 @@ useEffect(() => {
               Ingin merencanakan pengalaman menginap bersama NARA HOTEL?
             </p>
 
-            <a
-              href={user ? "/reservasi" : "/login"}
+            <button
+              type="button"
+              onClick={() => router.push("/reservasi")}
               className="mt-4 inline-flex rounded-full bg-[#D8B58C] px-5 py-3 text-xs font-semibold text-[#3D281C] hover:bg-[#F0D7B8]"
             >
-              {user ? "Reservasi Sekarang" : "Masuk ke Akun"}
-            </a>
+              Reservasi Sekarang
+            </button>
           </div>
         </div>
 

@@ -1,6 +1,8 @@
+
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { useCallback, useEffect, useState } from "react";
 
 const KOSONG = {
@@ -8,6 +10,8 @@ const KOSONG = {
   description: "",
   capacity: "2",
   price: "",
+  facilities: "",
+  imageUrl: "",
 };
 
 function rupiah(value) {
@@ -36,6 +40,14 @@ function statusKamar(status) {
     "#EEEEEE",
     "#555555",
   ];
+}
+
+function daftarFasilitas(value) {
+  if (Array.isArray(value)) {
+    return value.join(", ");
+  }
+
+  return typeof value === "string" ? value : "";
 }
 
 export default function AdminPage() {
@@ -81,18 +93,18 @@ export default function AdminPage() {
   }, []);
 
   useEffect(() => {
-  let isActive = true;
+    let isActive = true;
 
-  Promise.resolve().then(() => {
-    if (isActive) {
-      loadRoomTypes();
-    }
-  });
+    Promise.resolve().then(() => {
+      if (isActive) {
+        loadRoomTypes();
+      }
+    });
 
-  return () => {
-    isActive = false;
-  };
-}, [loadRoomTypes]);
+    return () => {
+      isActive = false;
+    };
+  }, [loadRoomTypes]);
 
   const semuaKamar = roomTypes.flatMap((type) =>
     (type.rooms || []).map((room) => ({
@@ -125,12 +137,16 @@ export default function AdminPage() {
 
   function bukaEdit(type) {
     setEditingId(type.id);
+
     setForm({
       name: type.name || "",
       description: type.description || "",
       capacity: String(type.capacity),
       price: String(type.price),
+      facilities: daftarFasilitas(type.facilities),
+      imageUrl: type.imageUrl || "",
     });
+
     setFormError("");
     setMessage("");
     setShowForm(true);
@@ -234,18 +250,47 @@ export default function AdminPage() {
       return;
     }
 
-    if (!Number.isInteger(capacity) || capacity < 1) {
+    if (
+      !Number.isInteger(capacity) ||
+      capacity < 1 ||
+      capacity > 20
+    ) {
       setFormError(
-        "Kapasitas harus berupa angka bulat minimal 1."
+        "Kapasitas harus berupa angka bulat antara 1 dan 20."
       );
       return;
     }
 
-    if (!Number.isSafeInteger(price) || price < 0) {
+    if (!Number.isSafeInteger(price) || price <= 0) {
       setFormError(
-        "Tarif harus berupa angka bulat dan tidak boleh negatif."
+        "Tarif harus berupa angka bulat lebih dari 0."
       );
       return;
+    }
+
+    const facilities = form.facilities
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean);
+
+    const imageUrl = form.imageUrl.trim();
+
+    if (imageUrl) {
+      try {
+        const url = new URL(imageUrl);
+
+        if (
+          url.protocol !== "http:" &&
+          url.protocol !== "https:"
+        ) {
+          throw new Error();
+        }
+      } catch {
+        setFormError(
+          "URL foto harus berupa alamat gambar HTTP atau HTTPS yang valid."
+        );
+        return;
+      }
     }
 
     setSaving(true);
@@ -263,6 +308,8 @@ export default function AdminPage() {
           description: form.description.trim(),
           capacity,
           price,
+          facilities,
+          imageUrl: imageUrl || null,
         }),
       });
 
@@ -296,7 +343,7 @@ export default function AdminPage() {
           <p style={styles.eyebrow}>NARA HOTEL</p>
           <h1 style={styles.title}>Dashboard Admin</h1>
           <p style={styles.subtitle}>
-            Kelola tipe kamar, tarif, dan unit kamar hotel.
+            Kelola tipe kamar, tarif, fasilitas, foto, dan unit kamar hotel.
           </p>
         </div>
 
@@ -314,8 +361,7 @@ export default function AdminPage() {
             Selamat datang di NARA HOTEL
           </h2>
           <p style={styles.welcomeText}>
-            Kelola informasi kamar hotel dengan mudah melalui
-            halaman ini.
+            Kelola informasi kamar hotel dengan mudah melalui halaman ini.
           </p>
         </div>
       </section>
@@ -348,9 +394,7 @@ export default function AdminPage() {
       <section style={styles.section}>
         <div style={styles.sectionHeader}>
           <div>
-            <p style={styles.eyebrow}>
-              INFORMASI AKOMODASI
-            </p>
+            <p style={styles.eyebrow}>INFORMASI AKOMODASI</p>
             <h2 style={styles.sectionTitle}>
               Tipe Kamar dan Tarif
             </h2>
@@ -386,17 +430,27 @@ export default function AdminPage() {
           <div style={styles.empty}>
             <p>Belum ada tipe kamar.</p>
             <p>
-              Buat tipe kamar terlebih dahulu sebelum
-              menambahkan unit.
+              Buat tipe kamar terlebih dahulu sebelum menambahkan unit.
             </p>
           </div>
         ) : (
           <div style={styles.roomGrid}>
             {roomTypes.map((type) => (
               <article key={type.id} style={styles.roomCard}>
-                <div style={styles.roomIllustration}>
-                  <span style={styles.roomTag}>NARA HOTEL</span>
-                </div>
+                {type.imageUrl ? (
+                  <Image
+                    src={type.imageUrl}
+                    alt={`Foto ${type.name}`}
+                    width={600}
+                    height={400}
+                    unoptimized
+                    style={styles.roomImage}
+                  />
+                ) : (
+                  <div style={styles.roomIllustration}>
+                    <span style={styles.roomTag}>NARA HOTEL</span>
+                  </div>
+                )}
 
                 <div style={styles.roomContent}>
                   <div style={styles.roomTitleRow}>
@@ -421,6 +475,26 @@ export default function AdminPage() {
                       Kapasitas {type.capacity} orang
                     </span>
                   </div>
+
+                  {Array.isArray(type.facilities) &&
+                    type.facilities.length > 0 && (
+                      <div style={styles.facilitySection}>
+                        <strong style={styles.facilityTitle}>
+                          Fasilitas Kamar
+                        </strong>
+
+                        <div style={styles.facilityList}>
+                          {type.facilities.map((facility, index) => (
+                            <span
+                              key={`${type.id}-${index}`}
+                              style={styles.facilityBadge}
+                            >
+                              {facility}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
 
                   <div style={styles.priceRow}>
                     <span style={styles.priceLabel}>
@@ -548,9 +622,65 @@ export default function AdminPage() {
                       description: event.target.value,
                     })
                   }
-                  placeholder="Deskripsi dan fasilitas kamar"
+                  placeholder="Deskripsi singkat tipe kamar"
                 />
               </label>
+
+              <label style={styles.label}>
+                Fasilitas Kamar
+                <textarea
+                  style={{
+                    ...styles.input,
+                    minHeight: 85,
+                    resize: "vertical",
+                  }}
+                  value={form.facilities}
+                  onChange={(event) =>
+                    setForm({
+                      ...form,
+                      facilities: event.target.value,
+                    })
+                  }
+                  placeholder="Contoh: WiFi, AC, TV, Air Panas, Sarapan"
+                />
+                <span style={styles.inputHint}>
+                  Pisahkan setiap fasilitas menggunakan tanda koma.
+                </span>
+              </label>
+
+              <label style={styles.label}>
+                URL Foto Kamar
+                <input
+                  style={styles.input}
+                  type="url"
+                  value={form.imageUrl}
+                  onChange={(event) =>
+                    setForm({
+                      ...form,
+                      imageUrl: event.target.value,
+                    })
+                  }
+                  placeholder="https://contoh.com/foto-kamar.jpg"
+                />
+                <span style={styles.inputHint}>
+                  Masukkan alamat gambar yang dapat diakses melalui browser.
+                  Kosongkan jika belum memiliki foto.
+                </span>
+              </label>
+
+              {form.imageUrl.trim() && (
+                <div style={styles.previewWrapper}>
+                  <p style={styles.previewLabel}>Preview Foto</p>
+                  <Image
+                    src={form.imageUrl}
+                    alt="Preview foto tipe kamar"
+                    width={600}
+                    height={400}
+                    unoptimized
+                    style={styles.previewImage}
+                  />
+                </div>
+              )}
 
               <div style={styles.formGrid}>
                 <label style={styles.label}>
@@ -559,6 +689,7 @@ export default function AdminPage() {
                     style={styles.input}
                     type="number"
                     min="1"
+                    max="20"
                     step="1"
                     value={form.capacity}
                     onChange={(event) =>
@@ -576,7 +707,7 @@ export default function AdminPage() {
                   <input
                     style={styles.input}
                     type="number"
-                    min="0"
+                    min="1"
                     step="1"
                     value={form.price}
                     onChange={(event) =>
@@ -923,6 +1054,13 @@ const styles = {
     overflow: "hidden",
     background: "#FFFFFF",
   },
+  roomImage: {
+    width: "100%",
+    height: 190,
+    objectFit: "cover",
+    display: "block",
+    background: "#F0E4D8",
+  },
   roomIllustration: {
     background: "linear-gradient(135deg, #EAD9C6, #F6EDE2)",
     minHeight: 105,
@@ -971,12 +1109,33 @@ const styles = {
     color: "#79563C",
     padding: "8px 0",
   },
+  facilitySection: {
+    marginTop: 12,
+  },
+  facilityTitle: {
+    display: "block",
+    fontSize: 12,
+    color: "#60452F",
+    marginBottom: 9,
+  },
+  facilityList: {
+    display: "flex",
+    flexWrap: "wrap",
+    gap: 7,
+  },
+  facilityBadge: {
+    padding: "6px 9px",
+    borderRadius: 20,
+    background: "#F3EAE1",
+    color: "#79563C",
+    fontSize: 11,
+  },
   priceRow: {
     display: "flex",
     justifyContent: "space-between",
     alignItems: "center",
     gap: 10,
-    marginTop: 8,
+    marginTop: 15,
   },
   priceLabel: {
     color: "#88776A",
@@ -1092,6 +1251,29 @@ const styles = {
     color: "#493326",
     fontSize: 14,
     outlineColor: "#A9805E",
+  },
+  inputHint: {
+    fontSize: 11,
+    lineHeight: 1.5,
+    color: "#9A8A7D",
+    fontWeight: 400,
+  },
+  previewWrapper: {
+    marginBottom: 18,
+  },
+  previewLabel: {
+    fontSize: 12,
+    color: "#654832",
+    fontWeight: 700,
+    margin: "0 0 9px",
+  },
+  previewImage: {
+    width: "100%",
+    height: 180,
+    objectFit: "cover",
+    borderRadius: 10,
+    border: "1px solid #DCC8B5",
+    background: "#F0E4D8",
   },
   formGrid: {
     display: "grid",

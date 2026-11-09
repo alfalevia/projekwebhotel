@@ -2,6 +2,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { useCallback, useEffect, useState } from "react";
 
 function formatRupiah(price) {
@@ -79,6 +80,7 @@ function warnaPembayaran(status) {
 }
 
 const MAX_FILE_SIZE = 5 * 1024 * 1024;
+
 const ALLOWED_FILE_TYPES = [
   "image/jpeg",
   "image/png",
@@ -117,7 +119,12 @@ export default function ReservasiPage() {
   // Mengambil riwayat reservasi.
   const loadReservations = useCallback(async () => {
     try {
-      const response = await fetch("/api/reservations");
+      const response = await fetch("/api/reservations", {
+        method: "GET",
+        credentials: "same-origin",
+        cache: "no-store",
+      });
+
       const result = await response.json();
 
       if (!response.ok || !result.success) {
@@ -137,60 +144,71 @@ export default function ReservasiPage() {
     }
   }, []);
 
-  // Memeriksa akun pengguna dan memuat riwayat.
+  // Memeriksa sesi akun pengguna.
   useEffect(() => {
     let active = true;
+    const controller = new AbortController();
 
-    async function loadUser() {
+    const timeout = setTimeout(() => {
+      controller.abort();
+    }, 8000);
+
+    async function checkSession() {
       try {
-        const response = await fetch("/api/me");
+        const response = await fetch("/api/me", {
+          method: "GET",
+          credentials: "same-origin",
+          cache: "no-store",
+          signal: controller.signal,
+        });
+
         const result = await response.json();
 
-        if (!response.ok || !result.success || !result.data?.id) {
+        if (!response.ok || !result.success || !result.data) {
           if (active) {
             setUser(null);
-            setLoadingReservations(false);
-            setMessage(
-              "Silakan masuk ke akun terlebih dahulu untuk melakukan reservasi."
-            );
-            setMessageType("error");
           }
           return;
         }
 
         if (active) {
           setUser(result.data);
+          await loadReservations();
         }
-
-        await loadReservations();
-      } catch {
+      } catch (error) {
         if (active) {
+          console.error("Gagal memeriksa sesi akun:", error);
           setUser(null);
-          setLoadingReservations(false);
-          setMessage("Gagal memeriksa sesi login. Silakan coba lagi.");
-          setMessageType("error");
         }
       } finally {
+        clearTimeout(timeout);
+
         if (active) {
           setLoadingUser(false);
         }
       }
     }
 
-    loadUser();
+    checkSession();
 
     return () => {
       active = false;
+      clearTimeout(timeout);
+      controller.abort();
     };
   }, [loadReservations]);
 
-  // Mengambil data kamar.
+  // Mengambil data kamar sekaligus mengisi formulir dari halaman utama.
   useEffect(() => {
     let active = true;
 
     async function loadRooms() {
       try {
-        const response = await fetch("/api/room-types");
+        const response = await fetch("/api/room-types", {
+          method: "GET",
+          cache: "no-store",
+        });
+
         const result = await response.json();
 
         if (!response.ok || !result.success) {
@@ -202,15 +220,53 @@ export default function ReservasiPage() {
             .filter((room) => room.status === "TERSEDIA")
             .map((room) => ({
               ...room,
+              roomTypeId: type.id,
               typeName: type.name,
               price: type.price,
               capacity: type.capacity,
             }))
         );
 
-        if (active) {
-          setRooms(availableRooms);
+        if (!active) return;
+
+        setRooms(availableRooms);
+
+        const params = new URLSearchParams(window.location.search);
+        const roomTypeId = Number(params.get("roomTypeId"));
+
+        if (!Number.isInteger(roomTypeId) || roomTypeId <= 0) {
+          return;
         }
+
+        const selected = availableRooms.find(
+          (room) => room.roomTypeId === roomTypeId
+        );
+
+        if (!selected) return;
+
+        const requestedGuests = Number(params.get("guests") || 1);
+
+        const safeGuests = Math.min(
+          Math.max(
+            Number.isInteger(requestedGuests) ? requestedGuests : 1,
+            1
+          ),
+          selected.capacity
+        );
+
+        const requestedCheckIn = params.get("checkIn") || "";
+        const requestedCheckOut = params.get("checkOut") || "";
+
+        setForm((previous) => ({
+          ...previous,
+          roomId: String(selected.id),
+          checkIn: requestedCheckIn,
+          checkOut:
+            requestedCheckOut > requestedCheckIn
+              ? requestedCheckOut
+              : "",
+          guests: String(safeGuests),
+        }));
       } catch (error) {
         if (active) {
           setMessage(error.message || "Gagal memuat kamar.");
@@ -326,6 +382,7 @@ export default function ReservasiPage() {
         headers: {
           "Content-Type": "application/json",
         },
+        credentials: "same-origin",
         body: JSON.stringify({
           roomId: Number(form.roomId),
           checkIn: form.checkIn,
@@ -415,38 +472,32 @@ export default function ReservasiPage() {
     }));
   }
 
-  // Membatalkan reservasi.
-  async function handleCancelReservation(reservationId) {
-    const confirmed = window.confirm(
-      "Apakah kamu yakin ingin membatalkan reservasi ini?"
+  // Mengunggah bukti transfer.
+  async function uploadProof(reservationId, file) {
+    const formData = new FormData();
+    formData.append("paymentProof", file);
+
+    const response = await fetch(
+      `/api/reservations/${reservationId}/proof`,
+      {
+        method: "POST",
+        body: formData,
+        credentials: "same-origin",
+      }
     );
 
-    if (!confirmed) return;
+    const result = await response.json();
 
-    setCancellingId(reservationId);
-
-    try {
-      const response = await fetch(
-        `/api/reservations/${reservationId}/cancel`,
-        { method: "PATCH" }
+    if (!response.ok || !result.success) {
+      throw new Error(
+        result.message || "Gagal mengunggah bukti transfer."
       );
-
-      const result = await response.json();
-
-      if (!response.ok || !result.success) {
-        throw new Error(result.message || "Reservasi gagal dibatalkan.");
-      }
-
-      await loadReservations();
-      window.alert(result.message || "Reservasi berhasil dibatalkan.");
-    } catch (error) {
-      window.alert(error.message || "Gagal membatalkan reservasi.");
-    } finally {
-      setCancellingId(null);
     }
+
+    return result;
   }
 
-  // Mengajukan pembayaran baru.
+  // Mengajukan pembayaran.
   async function handlePayment(reservation) {
     const paymentMethod = paymentMethods[reservation.id];
     const selectedFile = proofFiles[reservation.id];
@@ -473,7 +524,7 @@ export default function ReservasiPage() {
       paymentMethod === "TRANSFER_BANK" &&
       selectedFile.size > MAX_FILE_SIZE
     ) {
-      window.alert("Ukuran bukti pembayaran maksimal 5 MB.");
+      window.alert("Ukuran file maksimal 5 MB.");
       return;
     }
 
@@ -489,50 +540,41 @@ export default function ReservasiPage() {
     setPayingId(reservation.id);
 
     try {
-      let response;
-
-      if (paymentMethod === "TRANSFER_BANK") {
-        const formData = new FormData();
-        formData.append("paymentMethod", paymentMethod);
-        formData.append("paymentProof", selectedFile);
-
-        response = await fetch(
-          `/api/reservations/${reservation.id}/payment`,
-          {
-            method: "POST",
-            body: formData,
-          }
-        );
-      } else {
-        response = await fetch(
-          `/api/reservations/${reservation.id}/payment`,
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({ paymentMethod }),
-          }
-        );
-      }
+      const response = await fetch(
+        `/api/reservations/${reservation.id}/payment`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          credentials: "same-origin",
+          body: JSON.stringify({ paymentMethod }),
+        }
+      );
 
       const result = await response.json();
 
       if (!response.ok || !result.success) {
         throw new Error(
-          result.message || `Pengajuan pembayaran gagal (${response.status}).`
+          result.message || "Pengajuan pembayaran gagal."
         );
+      }
+
+      if (paymentMethod === "TRANSFER_BANK" && selectedFile) {
+        await uploadProof(reservation.id, selectedFile);
       }
 
       removeProofFile(reservation.id);
       await loadReservations();
 
       window.alert(
-        result.message ||
-          "Pembayaran berhasil diajukan dan menunggu konfirmasi petugas."
+        "Pembayaran berhasil diajukan dan menunggu konfirmasi petugas."
       );
     } catch (error) {
       console.error("Kesalahan pengajuan pembayaran:", error);
+
+      await loadReservations();
+
       window.alert(
         error.message || "Gagal mengajukan pembayaran. Silakan coba lagi."
       );
@@ -553,24 +595,7 @@ export default function ReservasiPage() {
     setUploadingProofId(reservationId);
 
     try {
-      const formData = new FormData();
-      formData.append("paymentProof", file);
-
-      const response = await fetch(
-        `/api/reservations/${reservationId}/proof`,
-        {
-          method: "POST",
-          body: formData,
-        }
-      );
-
-      const result = await response.json();
-
-      if (!response.ok || !result.success) {
-        throw new Error(
-          result.message || "Gagal mengunggah bukti transfer."
-        );
-      }
+      const result = await uploadProof(reservationId, file);
 
       removeProofFile(reservationId);
       await loadReservations();
@@ -584,7 +609,42 @@ export default function ReservasiPage() {
     }
   }
 
-  // Tampilan ketika memeriksa akun.
+  // Membatalkan reservasi.
+  async function handleCancelReservation(reservationId) {
+    const confirmed = window.confirm(
+      "Apakah kamu yakin ingin membatalkan reservasi ini?"
+    );
+
+    if (!confirmed) return;
+
+    setCancellingId(reservationId);
+
+    try {
+      const response = await fetch(
+        `/api/reservations/${reservationId}/cancel`,
+        {
+          method: "PATCH",
+          credentials: "same-origin",
+        }
+      );
+
+      const result = await response.json();
+
+      if (!response.ok || !result.success) {
+        throw new Error(result.message || "Reservasi gagal dibatalkan.");
+      }
+
+      await loadReservations();
+
+      window.alert(result.message || "Reservasi berhasil dibatalkan.");
+    } catch (error) {
+      window.alert(error.message || "Gagal membatalkan reservasi.");
+    } finally {
+      setCancellingId(null);
+    }
+  }
+
+  // Tampilan saat memeriksa akun.
   if (loadingUser) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-[#F8F3EC] px-5 text-[#4B2E1C]">
@@ -776,6 +836,7 @@ export default function ReservasiPage() {
                 id="checkIn"
                 name="checkIn"
                 type="date"
+                min={getLocalDateString()}
                 required
                 value={form.checkIn}
                 onChange={handleChange}
@@ -795,8 +856,8 @@ export default function ReservasiPage() {
                 id="checkOut"
                 name="checkOut"
                 type="date"
+                min={form.checkIn || getLocalDateString()}
                 required
-                min={form.checkIn || undefined}
                 value={form.checkOut}
                 onChange={handleChange}
                 className="w-full border border-[#D9C6B1] bg-white px-4 py-3 outline-none focus:border-[#8B5E3C]"
@@ -1054,10 +1115,13 @@ export default function ReservasiPage() {
 
                               {preview && (
                                 <div className="mt-4">
-                                  <img
+                                  <Image
                                     src={preview}
                                     alt="Preview bukti transfer"
-                                    className="max-h-64 border border-[#D9C6B1] object-contain"
+                                    width={640}
+                                    height={480}
+                                    unoptimized
+                                    className="max-h-64 w-auto border border-[#D9C6B1] object-contain"
                                   />
 
                                   <button
@@ -1129,10 +1193,13 @@ export default function ReservasiPage() {
 
                           {preview && (
                             <div className="mt-4">
-                              <img
+                              <Image
                                 src={preview}
                                 alt="Preview bukti transfer"
-                                className="max-h-64 border border-[#D9C6B1] object-contain"
+                                width={640}
+                                height={480}
+                                unoptimized
+                                className="max-h-64 w-auto border border-[#D9C6B1] object-contain"
                               />
 
                               <button

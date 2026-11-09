@@ -27,6 +27,8 @@ export async function GET() {
         description: roomType.description,
         capacity: roomType.capacity,
         price: roomType.price.toString(),
+        facilities: roomType.facilities || [],
+        imageUrl: roomType.imageUrl || null,
         rooms: roomType.rooms,
       })),
     });

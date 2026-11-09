@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import prisma from "@/lib/prisma";
 import { verifySession } from "@/lib/session";
+import { queuePushNotification } from "@/lib/queue-push-notification";
 
 // ============================================
 // GET: Mengambil reservasi milik pengguna login
@@ -61,7 +62,6 @@ export async function GET() {
         guests: reservation.guests,
         totalPrice: Number(reservation.totalPrice),
 
-        // Informasi pembayaran
         paymentStatus: reservation.paymentStatus,
         paymentMethod: reservation.paymentMethod,
         paymentProof: reservation.paymentProof,
@@ -284,8 +284,6 @@ export async function POST(request) {
         guests,
         totalPrice,
         status: "MENUNGGU",
-
-        // Pembayaran dimulai dengan status belum dibayar
         paymentStatus: "BELUM_DIBAYAR",
       },
       include: {
@@ -297,7 +295,19 @@ export async function POST(request) {
       },
     });
 
-    // 10. Kirim hasil reservasi
+    // 10. Masukkan notifikasi ke antrean PostgreSQL
+    // Kegagalan antrean tidak membatalkan reservasi.
+    try {
+      await queuePushNotification(user.id, {
+        title: "NARA HOTEL",
+        body: `Reservasi ${reservation.bookingCode} berhasil diajukan dan menunggu konfirmasi.`,
+        url: "/",
+      });
+    } catch (pushError) {
+      console.error("RESERVATION QUEUE ERROR:", pushError);
+    }
+
+    // 11. Kirim hasil reservasi
     return NextResponse.json(
       {
         success: true,
@@ -313,7 +323,6 @@ export async function POST(request) {
           pricePerNight,
           totalPrice: Number(reservation.totalPrice),
 
-          // Informasi pembayaran
           paymentStatus: reservation.paymentStatus,
           paymentMethod: reservation.paymentMethod,
 
