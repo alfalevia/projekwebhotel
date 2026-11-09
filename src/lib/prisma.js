@@ -4,24 +4,44 @@ import { PrismaClient } from "../generated/prisma/client.ts";
 
 const globalForPrisma = globalThis;
 
-const connectionString = process.env.DATABASE_URL;
+function getPrismaClient() {
+  if (globalForPrisma.prisma) {
+    return globalForPrisma.prisma;
+  }
 
-if (!connectionString) {
-  throw new Error("DATABASE_URL belum dikonfigurasi.");
-}
+  const connectionString = process.env.DATABASE_URL;
 
-const adapter = new PrismaPg({
-  connectionString,
-});
+  if (!connectionString) {
+    throw new Error(
+      "DATABASE_URL belum dikonfigurasi. Hubungkan database PostgreSQL terlebih dahulu."
+    );
+  }
 
-const prisma =
-  globalForPrisma.prisma ||
-  new PrismaClient({
+  const adapter = new PrismaPg({
+    connectionString,
+  });
+
+  const prisma = new PrismaClient({
     adapter,
   });
 
-if (process.env.NODE_ENV !== "production") {
   globalForPrisma.prisma = prisma;
+
+  return prisma;
 }
+
+const prisma = new Proxy(
+  {},
+  {
+    get(_, property) {
+      const client = getPrismaClient();
+      const value = client[property];
+
+      return typeof value === "function"
+        ? value.bind(client)
+        : value;
+    },
+  }
+);
 
 export default prisma;
